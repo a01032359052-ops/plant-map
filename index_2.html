@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>우리 지역 식물 지도</title>
+
+<!-- ============================================================
+  구글 폰트: 표제용 세리프(Fraunces) + 본문용 산세리프(Work Sans)
+============================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+  :root{
+    --forest:#1F3D2B;      /* 짙은 숲 초록 - 헤더/포인트 */
+    --moss:#4A7C59;        /* 이끼 초록 - 보조 요소, 마커 */
+    --paper:#F2ECDE;       /* 채집대장 종이색 - 배경 */
+    --coral:#C97B63;       /* 마른 열매빛 코랄 - 강조 버튼 */
+    --ink:#2B2620;         /* 잉크색 - 본문 텍스트 */
+    --gold:#D4A94A;        /* 압화 라벨 금색 - 뱃지 */
+    --line:#D8CDB4;        /* 종이 위 실선 */
+    --card:#FBF8F0;        /* 카드 배경(종이보다 살짝 밝음) */
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:'Work Sans', sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+  }
+
+  /* ---------- 상단 헤더 (이제 화면 전체를 덮지 않고, 페이지 맨 위에 자연스럽게 놓여요) ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 24px;
+    background:var(--forest);
+    box-shadow:0 2px 10px rgba(0,0,0,.15);
+  }
+  .brand{
+    display:flex; align-items:center; gap:10px;
+  }
+  .brand svg{width:26px; height:26px; flex-shrink:0;}
+  .brand h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:20px;
+    color:var(--paper);
+    letter-spacing:.2px;
+  }
+  .brand .sub{
+    display:block;
+    font-family:'Work Sans', sans-serif;
+    font-size:11px;
+    font-weight:500;
+    color:#C9D8C4;
+    letter-spacing:.5px;
+  }
+  .header-badge{
+    font-size:12px;
+    color:var(--paper);
+    background:rgba(255,255,255,.12);
+    padding:6px 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.25);
+    white-space:nowrap;
+  }
+
+  /* ---------- 페이지 컨테이너 ---------- */
+  main{
+    max-width:1000px;
+    margin:0 auto;
+    padding:32px 20px 60px;
+  }
+  .intro{
+    margin-bottom:24px;
+  }
+  .intro h2{
+    font-family:'Fraunces', serif;
+    font-size:24px;
+    color:var(--forest);
+    margin-bottom:8px;
+  }
+  .intro p{
+    font-size:14px;
+    color:#5C5544;
+    line-height:1.6;
+  }
+
+  /* ---------- 지도 프레임 (지도만 깨끗하게 담는 상자, 버튼 없음) ---------- */
+  .map-frame{
+    position:relative;
+    width:100%;
+    height:440px;              /* 지도 높이를 고정값으로 지정 → 화면을 뒤덮지 않음 */
+    border-radius:18px;
+    overflow:hidden;           /* 지도를 확대해도 이 상자 밖으로 절대 못 나감 */
+    border:1px solid var(--line);
+    box-shadow:0 10px 30px rgba(31,61,43,.12);
+  }
+  #map{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    background:#E4DEC9; /* 카카오맵 로드 전 임시 배경 */
+  }
+
+  /* ---------- 지도 위 툴바 (검색 + 필터) — 지도 밖, 일반 페이지 흐름 ---------- */
+  .toolbar{
+    display:flex; align-items:center; gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .search-box{
+    display:flex; align-items:center; gap:8px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:10px 14px;
+    width:min(320px, 100%);
+    box-shadow:0 2px 8px rgba(31,61,43,.06);
+  }
+  .search-box input{
+    flex:1; border:none; outline:none; background:transparent;
+    font-family:'Work Sans', sans-serif; font-size:14px; color:var(--ink);
+  }
+  .search-box input::placeholder{color:#9A9078;}
+  .search-box svg{width:18px; height:18px; color:var(--moss); flex-shrink:0;}
+
+  /* ---------- 카테고리 필터 칩 ---------- */
+  .filter-row{
+    display:flex; gap:8px; overflow-x:auto;
+    padding:2px;
+    scrollbar-width:none;
+  }
+  .filter-row::-webkit-scrollbar{display:none;}
+  .chip{
+    flex-shrink:0;
+    display:flex; align-items:center; gap:6px;
+    font-size:13px; font-weight:500;
+    padding:7px 14px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:999px;
+    color:var(--ink);
+    cursor:pointer;
+    white-space:nowrap;
+    transition:.15s ease;
+  }
+  .chip.active{
+    background:var(--moss);
+    border-color:var(--moss);
+    color:var(--paper);
+  }
+  .chip:hover{border-color:var(--moss);}
+
+  /* ---------- 지도 아래 컨트롤 바 (범례 + GPS + 제보하기) — 지도 밖, 별도 영역 ---------- */
+  .map-controls{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:12px;
+    margin-top:14px;
+    flex-wrap:wrap;
+  }
+  .legend{
+    background:var(--card);
+    border:1px dashed var(--line);
+    border-radius:12px;
+    padding:8px 14px;
+    font-size:12px;
+    color:var(--ink);
+  }
+  .legend b{color:var(--forest); font-family:'Fraunces',serif; font-size:15px;}
+
+  .action-buttons{
+    display:flex; align-items:center; gap:10px;
+  }
+  .btn-gps{
+    width:44px; height:44px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--card);
+    border:1px solid var(--line);
+    box-shadow:0 2px 8px rgba(31,61,43,.08);
+    cursor:pointer;
+  }
+  .btn-gps svg{width:20px; height:20px; color:var(--forest);}
+  .btn-report{
+    width:auto; height:46px; padding:0 20px; border-radius:23px;
+    background:var(--coral); border:none;
+    display:flex; align-items:center; gap:8px;
+    color:#fff; font-family:'Work Sans',sans-serif; font-weight:600; font-size:14px;
+    box-shadow:0 6px 16px rgba(201,123,99,.35);
+    cursor:pointer;
+  }
+  .btn-report svg{width:17px; height:17px; color:#fff;}
+
+  /* ---------- 표본 라벨(인포윈도우) 스타일 ---------- */
+  .specimen-card{
+    font-family:'Work Sans', sans-serif;
+    background:var(--card);
+    border:1.5px dashed var(--moss);
+    border-radius:8px;
+    padding:10px 12px;
+    min-width:170px;
+  }
+  .specimen-card .name{
+    font-family:'Fraunces', serif;
+    font-weight:600; font-size:15px; color:var(--forest);
+  }
+  .specimen-card .desc{font-size:12px; color:var(--ink); margin-top:4px; line-height:1.4;}
+  .specimen-card .reporter{
+    margin-top:6px; font-size:11px; color:#7A7360; display:flex; align-items:center; gap:4px;
+  }
+
+  @media (max-width:480px){
+    .brand h1{font-size:17px;}
+    .header-badge{display:none;}
+    .map-frame{height:400px; border-radius:14px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#F2ECDE" stroke-width="1.6"><path d="M12 22V12M12 12C12 12 6 12 6 6C6 3 8 2 12 2C16 2 18 3 18 6C18 12 12 12 12 12Z"/><path d="M12 12C12 12 17 12 17 17C17 20 15 21 12 21"/><path d="M12 12C12 12 7 12 7 17C7 20 9 21 12 21"/></svg>
+    <div>
+      <h1>우리 지역 식물 지도</h1>
+      <span class="sub">동네 곳곳의 식물을 함께 기록해요</span>
+    </div>
+  </div>
+  <div class="header-badge">🌿 등록된 식물 128종</div>
+</header>
+
+<main>
+  <div class="intro">
+    <h2>우리 동네에서 발견한 식물들</h2>
+    <p>주민들이 직접 제보한 동네 식물 지도예요. 지도를 확대/축소하며 살펴보고, 새로운 식물을 발견하면 직접 제보해주세요.</p>
+  </div>
+
+  <!-- 검색 + 필터: 지도 밖, 지도 위쪽에 독립된 영역 -->
+  <div class="toolbar">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="searchInput" type="text" placeholder="식물 이름으로 검색 (예: 벚나무)" />
+    </div>
+    <div class="filter-row" id="filterRow">
+      <div class="chip active" data-cat="all">전체</div>
+      <div class="chip" data-cat="tree">🌳 나무</div>
+      <div class="chip" data-cat="flower">🌸 꽃</div>
+      <div class="chip" data-cat="grass">🌱 풀</div>
+      <div class="chip" data-cat="etc">🍀 기타</div>
+    </div>
+  </div>
+
+  <!-- 지도 프레임: 지도만 깨끗하게 -->
+  <div class="map-frame">
+    <div id="map"></div>
+  </div>
+
+  <!-- GPS/제보 버튼 + 범례: 지도 밖, 지도 아래쪽에 독립된 영역 -->
+  <div class="map-controls">
+    <div class="legend">
+      <b id="visibleCount">32</b> 개 표시 중
+    </div>
+    <div class="action-buttons">
+      <div class="btn-gps" id="gpsBtn" title="현재 위치로 이동">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </div>
+      <button class="btn-report" id="reportBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        제보하기
+      </button>
+    </div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+const CONFIG = {
+  SUPABASE_URL: "https://tdyhuausauyqnclmzjin.supabase.co/rest/v1/",
+  SUPABASE_ANON_KEY: "sb_publishable_ly243x1R040NH714t21Gew_kvcBc1SH",
+  DEFAULT_CENTER: { lat: 37.5665, lng: 126.9780 },
+  DEFAULT_LEVEL: 4
+};
+
+const SAMPLE_PLANTS = [
+  { id:1, lat:37.5665, lng:126.9780, name:"벚나무", desc:"4월 초 개화, 공원 산책로 입구", cat:"tree", reporter:"철수", photo:"" },
+  { id:2, lat:37.5680, lng:126.9820, name:"민들레", desc:"보도블록 틈, 노란 꽃 다수", cat:"flower", reporter:"초록지킴이", photo:"" },
+  { id:3, lat:37.5650, lng:126.9750, name:"강아지풀", desc:"공터 전체에 군락", cat:"grass", reporter:"익명", photo:"" },
+  { id:4, lat:37.5700, lng:126.9800, name:"진달래", desc:"등산로 초입 능선", cat:"flower", reporter:"산책러버", photo:"" }
+];
+
+let map, markers = [];
+
+function initMap(){
+  const container = document.getElementById('map');
+  map = L.map(container, {
+    zoomControl: true,
+    attributionControl: true
+  }).setView([CONFIG.DEFAULT_CENTER.lat, CONFIG.DEFAULT_CENTER.lng], CONFIG.DEFAULT_LEVEL);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  setTimeout(() => map.invalidateSize(), 0);
+  window.addEventListener('resize', () => map.invalidateSize());
+
+  renderPlants(SAMPLE_PLANTS);
+}
+
+function renderPlants(list){
+  markers.forEach(marker => map.removeLayer(marker));
+  markers = [];
+
+  list.forEach(p => {
+    const marker = L.marker([p.lat, p.lng]).addTo(map);
+    const popupHtml = `
+      <div class="specimen-card">
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="desc">${escapeHtml(p.desc)}</div>
+        <div class="reporter">🌿 제보자: ${escapeHtml(p.reporter || '익명')}</div>
+      </div>`;
+    marker.bindPopup(popupHtml, { autoPan: true });
+    markers.push(marker);
+  });
+
+  document.getElementById('visibleCount').textContent = list.length;
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, s => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[s]));
+}
+
+/* ---------- 검색 ---------- */
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = SAMPLE_PLANTS.filter(p => p.name.toLowerCase().includes(q));
+  renderPlants(q ? filtered : applyActiveCategory(SAMPLE_PLANTS));
+});
+
+/* ---------- 카테고리 필터 ---------- */
+let activeCat = 'all';
+document.getElementById('filterRow').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  activeCat = chip.dataset.cat;
+  renderPlants(applyActiveCategory(SAMPLE_PLANTS));
+});
+function applyActiveCategory(list){
+  return activeCat === 'all' ? list : list.filter(p => p.cat === activeCat);
+}
+
+/* ---------- GPS 버튼 ---------- */
+document.getElementById('gpsBtn').addEventListener('click', () => {
+  if(!navigator.geolocation){ alert('이 브라우저는 위치 기능을 지원하지 않아요.'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    map.panTo([pos.coords.latitude, pos.coords.longitude]);
+  }, () => alert('위치 정보를 가져올 수 없어요. 브라우저 위치 권한을 확인해주세요.'));
+});
+
+/* ---------- 제보하기 버튼 ---------- */
+document.getElementById('reportBtn').addEventListener('click', () => {
+  alert('제보 폼 페이지는 다음 단계에서 만들어요! (가이드 문서 "다음 단계" 참고)');
+});
+
+/* ---------- 지도 초기화 ---------- */
+document.addEventListener('DOMContentLoaded', initMap);
+</script>
+</body>
+</html>
